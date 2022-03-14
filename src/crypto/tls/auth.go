@@ -11,6 +11,7 @@ import (
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rsa"
+	"crypto/sm2"
 	"errors"
 	"fmt"
 	"hash"
@@ -28,6 +29,14 @@ func verifyHandshakeSignature(sigType uint8, pubkey crypto.PublicKey, hashFunc c
 		}
 		if !ecdsa.VerifyASN1(pubKey, signed, sig) {
 			return errors.New("ECDSA verification failure")
+		}
+	case signatureSm2:
+		pubKey, ok := pubkey.(*sm2.PublicKey)
+		if !ok {
+			return errors.New("tls: SM2 signing requires a SM2 public key")
+		}
+		if ok := pubKey.Verify(signed, sig); !ok {
+			return errors.New("verify sm2 signature error")
 		}
 	case signatureEd25519:
 		pubKey, ok := pubkey.(ed25519.PublicKey)
@@ -103,6 +112,8 @@ func typeAndHashFromSignatureScheme(signatureAlgorithm SignatureScheme) (sigType
 		sigType = signatureRSAPSS
 	case ECDSAWithSHA1, ECDSAWithP256AndSHA256, ECDSAWithP384AndSHA384, ECDSAWithP521AndSHA512:
 		sigType = signatureECDSA
+	case SM2WITHSM3:
+		sigType = signatureSm2
 	case Ed25519:
 		sigType = signatureEd25519
 	default:
@@ -117,6 +128,8 @@ func typeAndHashFromSignatureScheme(signatureAlgorithm SignatureScheme) (sigType
 		hash = crypto.SHA384
 	case PKCS1WithSHA512, PSSWithSHA512, ECDSAWithP521AndSHA512:
 		hash = crypto.SHA512
+	case SM2WITHSM3:
+		hash = crypto.SM3
 	case Ed25519:
 		hash = directSigning
 	default:
@@ -134,6 +147,8 @@ func legacyTypeAndHashFromPublicKey(pub crypto.PublicKey) (sigType uint8, hash c
 		return signaturePKCS1v15, crypto.MD5SHA1, nil
 	case *ecdsa.PublicKey:
 		return signatureECDSA, crypto.SHA1, nil
+	case *sm2.PublicKey:
+		return signatureSm2, crypto.SM3, nil
 	case ed25519.PublicKey:
 		// RFC 8422 specifies support for Ed25519 in TLS 1.0 and 1.1,
 		// but it requires holding on to a handshake transcript to do a
@@ -199,6 +214,13 @@ func signatureSchemesForCertificate(version uint16, cert *Certificate) []Signatu
 		default:
 			return nil
 		}
+	case *sm2.PublicKey:
+		switch pub.Curve {
+		case sm2.P256Sm2():
+			sigAlgs = []SignatureScheme{SM2WITHSM3}
+		default:
+			return nil
+		}
 	case *rsa.PublicKey:
 		size := pub.Size()
 		sigAlgs = make([]SignatureScheme, 0, len(rsaSignatureSchemes))
@@ -252,7 +274,7 @@ func selectSignatureScheme(vers uint16, c *Certificate, peerAlgs []SignatureSche
 // an unsupported private key.
 func unsupportedCertificateError(cert *Certificate) error {
 	switch cert.PrivateKey.(type) {
-	case rsa.PrivateKey, ecdsa.PrivateKey:
+	case rsa.PrivateKey, ecdsa.PrivateKey, sm2.PrivateKey:
 		return fmt.Errorf("tls: unsupported certificate: private key is %T, expected *%T",
 			cert.PrivateKey, cert.PrivateKey)
 	case *ed25519.PrivateKey:
@@ -271,6 +293,12 @@ func unsupportedCertificateError(cert *Certificate) error {
 		case elliptic.P256():
 		case elliptic.P384():
 		case elliptic.P521():
+		default:
+			return fmt.Errorf("tls: unsupported certificate curve (%s)", pub.Curve.Params().Name)
+		}
+	case *sm2.PublicKey:
+		switch pub.Curve {
+		case sm2.P256Sm2():
 		default:
 			return fmt.Errorf("tls: unsupported certificate curve (%s)", pub.Curve.Params().Name)
 		}

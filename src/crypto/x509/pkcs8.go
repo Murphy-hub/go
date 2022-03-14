@@ -8,6 +8,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rsa"
+	"crypto/sm2"
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"errors"
@@ -116,6 +117,27 @@ func MarshalPKCS8PrivateKey(key interface{}) ([]byte, error) {
 
 		if privKey.PrivateKey, err = marshalECPrivateKeyWithOID(k, nil); err != nil {
 			return nil, errors.New("x509: failed to marshal EC private key while building PKCS#8: " + err.Error())
+		}
+	case *sm2.PrivateKey:
+		oid, ok := oidFromNamedCurve(k.Curve)
+		if !ok {
+			return nil, errors.New("x509: unknown curve while marshaling to PKCS#8")
+		}
+
+		oidBytes, err := asn1.Marshal(oid)
+		if err != nil {
+			return nil, errors.New("x509: failed to marshal curve OID: " + err.Error())
+		}
+
+		privKey.Algo = pkix.AlgorithmIdentifier{
+			Algorithm: oidPublicKeyECDSA,
+			Parameters: asn1.RawValue{
+				FullBytes: oidBytes,
+			},
+		}
+
+		if privKey.PrivateKey, err = marshalSm2PrivateKeyWithOID(k, nil); err != nil {
+			return nil, errors.New("x509: failed to marshal Sm2 private key while building PKCS#8: " + err.Error())
 		}
 
 	case ed25519.PrivateKey:

@@ -7,6 +7,7 @@ package x509
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/sm2"
 	"encoding/asn1"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 )
 
 const ecPrivKeyVersion = 1
+const smPrivKeyVersion = 1
 
 // ecPrivateKey reflects an ASN.1 Elliptic Curve Private Key Structure.
 // References:
@@ -22,6 +24,13 @@ const ecPrivKeyVersion = 1
 // Per RFC 5915 the NamedCurveOID is marked as ASN.1 OPTIONAL, however in
 // most cases it is not.
 type ecPrivateKey struct {
+	Version       int
+	PrivateKey    []byte
+	NamedCurveOID asn1.ObjectIdentifier `asn1:"optional,explicit,tag:0"`
+	PublicKey     asn1.BitString        `asn1:"optional,explicit,tag:1"`
+}
+
+type smPrivateKey struct {
 	Version       int
 	PrivateKey    []byte
 	NamedCurveOID asn1.ObjectIdentifier `asn1:"optional,explicit,tag:0"`
@@ -86,6 +95,9 @@ func parseECPrivateKey(namedCurveOID *asn1.ObjectIdentifier, der []byte) (key *e
 	} else {
 		curve = namedCurveFromOID(privKey.NamedCurveOID)
 	}
+	if curve == sm2.P256Sm2() {
+		return nil, errors.New("x509: it's sm2 elliptic curve")
+	}
 	if curve == nil {
 		return nil, errors.New("x509: unknown elliptic curve")
 	}
@@ -117,4 +129,78 @@ func parseECPrivateKey(namedCurveOID *asn1.ObjectIdentifier, der []byte) (key *e
 	priv.X, priv.Y = curve.ScalarBaseMult(privateKey)
 
 	return priv, nil
+}
+
+// ParseSm2rivateKey parses an EC private key in SEC 1, ASN.1 DER form.
+//
+// This kind of key is commonly encoded in PEM blocks of type "SM PRIVATE KEY".
+func ParseSm2PrivateKey(der []byte) (*sm2.PrivateKey, error) {
+	var privKey smPrivateKey
+	if _, err := asn1.Unmarshal(der, &privKey); err != nil {
+		return nil, errors.New("x509: failed to parse SM private key: " + err.Error())
+	}
+	if privKey.Version != smPrivKeyVersion {
+		return nil, fmt.Errorf("x509: unknown SM private key version %d", privKey.Version)
+	}
+
+	var curve elliptic.Curve
+	curve = namedCurveFromOID(privKey.NamedCurveOID)
+	if curve == nil {
+		return nil, errors.New("x509: unknown elliptic curve")
+	}
+
+	k := new(big.Int).SetBytes(privKey.PrivateKey)
+	curveOrder := curve.Params().N
+	if k.Cmp(curveOrder) >= 0 {
+		return nil, errors.New("x509: invalid elliptic curve private key value")
+	}
+	priv := new(sm2.PrivateKey)
+	priv.Curve = curve
+	priv.D = k
+
+	privateKey := make([]byte, (curveOrder.BitLen()+7)/8)
+
+	// Some private keys have leading zero padding. This is invalid
+	// according to [SEC1], but this code will ignore it.
+	for len(privKey.PrivateKey) > len(privateKey) {
+		if privKey.PrivateKey[0] != 0 {
+			return nil, errors.New("x509: invalid private key length")
+		}
+		privKey.PrivateKey = privKey.PrivateKey[1:]
+	}
+
+	// Some private keys remove all leading zeros, this is also invalid
+	// according to [SEC1] but since OpenSSL used to do this, we ignore
+	// this too.
+	copy(privateKey[len(privateKey)-len(privKey.PrivateKey):], privKey.PrivateKey)
+	priv.X, priv.Y = curve.ScalarBaseMult(privateKey)
+
+	return priv, nil
+}
+
+// MarshalSm2PrivateKey
+func MarshalSm2PrivateKey(key *sm2.PrivateKey) ([]byte, error) {
+	oid, ok := oidFromNamedCurve(key.Curve)
+	if !ok {
+		return nil, errors.New("x509: unknown elliptic curve")
+	}
+	privateKey := make([]byte, (key.Curve.Params().N.BitLen()+7)/8)
+	return asn1.Marshal(smPrivateKey{
+		Version:       1,
+		PrivateKey:    key.D.FillBytes(privateKey),
+		NamedCurveOID: oid,
+		PublicKey:     asn1.BitString{Bytes: elliptic.Marshal(key.Curve, key.X, key.Y)},
+	})
+}
+
+// marshalSm2PrivateKey marshals an Sm2 private key into ASN.1, DER format and
+// sets the curve ID to the given OID, or omits it if OID is nil.
+func marshalSm2PrivateKeyWithOID(key *sm2.PrivateKey, oid asn1.ObjectIdentifier) ([]byte, error) {
+	privateKey := make([]byte, (key.Curve.Params().N.BitLen()+7)/8)
+	return asn1.Marshal(smPrivateKey{
+		Version:       1,
+		PrivateKey:    key.D.FillBytes(privateKey),
+		NamedCurveOID: oid,
+		PublicKey:     asn1.BitString{Bytes: elliptic.Marshal(key.Curve, key.X, key.Y)},
+	})
 }

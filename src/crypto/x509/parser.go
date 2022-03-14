@@ -10,6 +10,7 @@ import (
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rsa"
+	"crypto/sm2"
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"errors"
@@ -276,11 +277,21 @@ func parsePublicKey(algo PublicKeyAlgorithm, keyData *publicKeyInfo) (interface{
 		if x == nil {
 			return nil, errors.New("x509: failed to unmarshal elliptic curve point")
 		}
-		pub := &ecdsa.PublicKey{
-			Curve: namedCurve,
-			X:     x,
-			Y:     y,
+		var pub interface{}
+		if namedCurve == sm2.P256Sm2() {
+			pub = &sm2.PublicKey{
+				Curve: namedCurve,
+				X:     x,
+				Y:     y,
+			}
+		} else {
+			pub = &ecdsa.PublicKey{
+				Curve: namedCurve,
+				X:     x,
+				Y:     y,
+			}
 		}
+
 		return pub, nil
 	case Ed25519:
 		// RFC 8410, Section 3

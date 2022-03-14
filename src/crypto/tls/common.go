@@ -15,6 +15,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha512"
+	"crypto/sm2"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -164,6 +165,7 @@ const (
 	signatureRSAPSS
 	signatureECDSA
 	signatureEd25519
+	signatureSm2
 )
 
 // directSigning is a standard Hash value that signals that no pre-hashing
@@ -188,6 +190,8 @@ var supportedSignatureAlgorithms = []SignatureScheme{
 	ECDSAWithP521AndSHA512,
 	PKCS1WithSHA1,
 	ECDSAWithSHA1,
+	ECDSAWithSHA1,
+	SM2WITHSM3,
 }
 
 // helloRetryRequestRandom is set as the Random value of a ServerHello
@@ -386,6 +390,9 @@ const (
 
 	// EdDSA algorithms.
 	Ed25519 SignatureScheme = 0x0807
+
+	// Sm2 algorithms.
+	SM2WITHSM3 SignatureScheme = 0x0204
 
 	// Legacy signature and hash algorithms for TLS 1.2.
 	PKCS1WithSHA1 SignatureScheme = 0x0201
@@ -1185,6 +1192,25 @@ func (chi *ClientHelloInfo) SupportsCertificate(c *Certificate) error {
 				curve = CurveP384
 			case elliptic.P521():
 				curve = CurveP521
+			default:
+				return supportsRSAFallback(unsupportedCertificateError(c))
+			}
+			var curveOk bool
+			for _, c := range chi.SupportedCurves {
+				if c == curve && config.supportsCurve(c) {
+					curveOk = true
+					break
+				}
+			}
+			if !curveOk {
+				return errors.New("client doesn't support certificate curve")
+			}
+			ecdsaCipherSuite = true
+		case *sm2.PublicKey:
+			var curve CurveID
+			switch pub.Curve {
+			case sm2.P256Sm2():
+				curve = CurveP256
 			default:
 				return supportsRSAFallback(unsupportedCertificateError(c))
 			}
