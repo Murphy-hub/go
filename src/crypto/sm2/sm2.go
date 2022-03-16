@@ -67,7 +67,6 @@ func (priv *PrivateKey) Public() crypto.PublicKey {
 }
 
 func (pub *PublicKey) Equal(x crypto.PublicKey) bool {
-	return true
 	xx, ok := x.(*PublicKey)
 	if !ok {
 		return false
