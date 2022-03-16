@@ -242,7 +242,6 @@ const (
 	DSA // Unsupported.
 	ECDSA
 	Ed25519
-	SM2
 )
 
 var publicKeyAlgoName = [...]string{
