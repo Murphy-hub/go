@@ -242,6 +242,7 @@ const (
 	DSA // Unsupported.
 	ECDSA
 	Ed25519
+	SM2
 )
 
 var publicKeyAlgoName = [...]string{
@@ -249,6 +250,7 @@ var publicKeyAlgoName = [...]string{
 	DSA:     "DSA",
 	ECDSA:   "ECDSA",
 	Ed25519: "Ed25519",
+	SM2:     "SM2",
 }
 
 func (algo PublicKeyAlgorithm) String() string {
