@@ -56,9 +56,16 @@ func ParsePKCS8PrivateKey(der []byte) (key interface{}, err error) {
 		if _, err := asn1.Unmarshal(bytes, namedCurveOID); err != nil {
 			namedCurveOID = nil
 		}
-		key, err = parseECPrivateKey(namedCurveOID, privKey.PrivateKey)
-		if err != nil {
-			return nil, errors.New("x509: failed to parse EC private key embedded in PKCS#8: " + err.Error())
+		if namedCurveOID.Equal(oidNamedCurveP256SM2) {
+			key, err = parseSm2PrivateKey(namedCurveOID, privKey.PrivateKey)
+			if err != nil {
+				return nil, errors.New("x509: failed to parse EC private key embedded in PKCS#8: " + err.Error())
+			}
+		}else{
+			key, err = parseECPrivateKey(namedCurveOID, privKey.PrivateKey)
+			if err != nil {
+				return nil, errors.New("x509: failed to parse EC private key embedded in PKCS#8: " + err.Error())
+			}
 		}
 		return key, nil
 

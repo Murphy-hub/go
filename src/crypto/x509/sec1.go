@@ -44,6 +44,13 @@ func ParseECPrivateKey(der []byte) (*ecdsa.PrivateKey, error) {
 	return parseECPrivateKey(nil, der)
 }
 
+// ParseSm2PrivateKey parses an EC private key in SEC 1, ASN.1 DER form.
+//
+// This kind of key is commonly encoded in PEM blocks of type "SM PRIVATE KEY".
+func ParseSm2PrivateKey(der []byte) (*sm2.PrivateKey, error) {
+	return parseSm2PrivateKey(nil, der)
+}
+
 // MarshalECPrivateKey converts an EC private key to SEC 1, ASN.1 DER form.
 //
 // This kind of key is commonly encoded in PEM blocks of type "EC PRIVATE KEY".
@@ -131,20 +138,23 @@ func parseECPrivateKey(namedCurveOID *asn1.ObjectIdentifier, der []byte) (key *e
 	return priv, nil
 }
 
-// ParseSm2rivateKey parses an EC private key in SEC 1, ASN.1 DER form.
+// parseSm2PrivateKey parses an EC private key in SEC 1, ASN.1 DER form.
 //
 // This kind of key is commonly encoded in PEM blocks of type "SM PRIVATE KEY".
-func ParseSm2PrivateKey(der []byte) (*sm2.PrivateKey, error) {
-	var privKey smPrivateKey
+func parseSm2PrivateKey(namedCurveOID *asn1.ObjectIdentifier, der []byte) (*sm2.PrivateKey, error) {
+	var privKey ecPrivateKey
 	if _, err := asn1.Unmarshal(der, &privKey); err != nil {
 		return nil, errors.New("x509: failed to parse SM private key: " + err.Error())
 	}
 	if privKey.Version != smPrivKeyVersion {
 		return nil, fmt.Errorf("x509: unknown SM private key version %d", privKey.Version)
 	}
-
 	var curve elliptic.Curve
-	curve = namedCurveFromOID(privKey.NamedCurveOID)
+	if namedCurveOID != nil {
+		curve = namedCurveFromOID(*namedCurveOID)
+	} else {
+		curve = namedCurveFromOID(privKey.NamedCurveOID)
+	}
 	if curve == nil {
 		return nil, errors.New("x509: unknown elliptic curve")
 	}
@@ -185,7 +195,7 @@ func MarshalSm2PrivateKey(key *sm2.PrivateKey) ([]byte, error) {
 		return nil, errors.New("x509: unknown elliptic curve")
 	}
 	privateKey := make([]byte, (key.Curve.Params().N.BitLen()+7)/8)
-	return asn1.Marshal(smPrivateKey{
+	return asn1.Marshal(ecPrivateKey{
 		Version:       1,
 		PrivateKey:    key.D.FillBytes(privateKey),
 		NamedCurveOID: oid,
@@ -197,7 +207,7 @@ func MarshalSm2PrivateKey(key *sm2.PrivateKey) ([]byte, error) {
 // sets the curve ID to the given OID, or omits it if OID is nil.
 func marshalSm2PrivateKeyWithOID(key *sm2.PrivateKey, oid asn1.ObjectIdentifier) ([]byte, error) {
 	privateKey := make([]byte, (key.Curve.Params().N.BitLen()+7)/8)
-	return asn1.Marshal(smPrivateKey{
+	return asn1.Marshal(ecPrivateKey{
 		Version:       1,
 		PrivateKey:    key.D.FillBytes(privateKey),
 		NamedCurveOID: oid,
